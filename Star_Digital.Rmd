@@ -1,0 +1,370 @@
+# Setup
+
+## Import Libraries
+
+```{R}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+```
+
+## Transform Data
+
+```{r}
+# Convert test variable to factor
+df$test <- as.factor(df$test)
+
+# Combine imp_1, imp_2, imp_3, imp_4, imp_5 because Sites 1-5 are under the same network.
+df <- df %>%
+  mutate(imp_1_5 = imp_1 + imp_2 + imp_3 + imp_4 + imp_5)
+
+# Combine all impressions
+df <- df %>%
+  mutate(imp_total = imp_1_5 + imp_6)
+```
+
+```{r}
+# Compare sites 1-5 impressions across test & control
+t.test(df$imp_1_5 ~ df$test)
+```
+
+```{r}
+# Compare site 6 impressions across test & control
+t.test(df$imp_6 ~ df$test)
+```
+
+## Check Summary Stats
+
+```{r}
+summary_stats <- df %>%
+  group_by(test) %>%
+  summarise(
+    mean_imp_1_5 = mean(imp_1_5, na.rm = TRUE),
+    mean_imp_6 = mean(imp_6, na.rm = TRUE),
+    mean_imp_total = mean(imp_total, na.rm = TRUE),
+    count_purchase = sum(purchase, na.rm = TRUE)
+  )
+print(summary_stats)
+```
+
+```{r}
+# Power analysis for a two-sample t-test
+power.t.test(d = 0.05,       # Expected effect size (difference in means)
+           sig.level = 0.05, # Significance level (alpha)
+           power = 0.8,      # Desired power (80%)
+           type = "two.sample", 
+           alternative = "two.sided") # Two-tailed test
+```
+
+The test shows each group has to be at least 6280 data point. The
+experiment has over millions of testing point which leads to overpower.
+It's a positive sign.
+
+## Check Distribution
+
+```{r}
+hist(df$imp_1_5)
+hist(df$imp_6)
+hist(df$imp_total)
+```
+
+The distribution for impressions is heavily skewed to the right.
+
+# Model Fitting
+
+## 1. Is online advertising effective for Star Digital?
+
+## Check for relationships between purchase vs. test group and impressions (separately)
+
+Is there a relationship between purchase and if the consumer is part of
+the test group
+
+-   OR their impression count for websites 1-5 OR their impression count
+    for website 6?
+
+```{r}
+model_interaction <- glm(purchase ~ test + imp_1_5 + imp_6, 
+                         data = df, family = "binomial")
+summary(model_interaction)
+exp(coef(model_interaction))
+```
+
+**ANSWER:**
+
+-   test1 : p-value: 0.0783 \> 0.05 –\> marginally statistically
+    significant
+
+    -   odds: Consumers in the test group have a 7.62% increase in odds
+        of purchasing compared to those in the control group.
+
+-   imp_1_5 : p-value: \<2e-16 \< 0.05 –\> statistically significant
+
+    -   odds: Each 1 increase in imp_1_5 increases the odds of purchase
+        by 3.27%.
+
+-   imp_6 : p-value: 9.27e-07 \< 0.05 –\> statistically significant
+
+    -   odds: Each 1 increase in imp_6 increases the odds of purchase by
+        1.45%.
+
+------------------------------------------------------------------------
+
+## Is there a frequency effect of advertising on purchase? In particular, the question is whether increasing the frequency of advertising increases the probability of purchase?
+
+## Check for relationships between purchase vs. test group and impressions (together)
+
+------------------------------------------------------------------------
+
+Is there a relationship between purchase and
+
+-   impression count for websites 1-5
+
+-   GIVEN the consumer is part of the test group?
+
+```{r}
+model_interaction <- glm(purchase ~ test * imp_1_5, 
+                         data = df, family = "binomial")
+summary(model_interaction)
+exp(coef(model_interaction))
+```
+
+ANSWER:
+
+-   test1:imp_1_5
+
+    -   p-value: 9.11e-05 \< 0.05 –\> statistically significant
+
+    -   odds: Each 1 increase in imp_1_5, given the consumer is part of
+        the test group, increases the odds of purchase by 1.49%.
+
+------------------------------------------------------------------------
+
+Is there a relationship between purchase and
+
+-   impression count for website 6
+
+-   GIVEN the consumer is part of the test group?
+
+```{r}
+model_interaction <- glm(purchase ~ test * imp_6, 
+                         data = df, family = "binomial")
+summary(model_interaction)
+exp(coef(model_interaction))
+```
+
+ANSWER:
+
+-   test1:imp_6
+
+    -   p-value: 0.00347 \< 0.05 –\> statistically significant
+
+    -   odds: Each 1 increase in imp_6, given the consumer is part of
+        the test group, increases the odds of purchase by 1.72%.
+
+Summary : increasing the frequency of advertising increases the
+probability of purchase by a small percentage showing above
+
+------------------------------------------------------------------------
+
+## Check for relationships between purchase vs. impressions
+
+------------------------------------------------------------------------
+
+Is there a relationship between purchase and the consumers' impression
+count for websites 1-5?
+
+```{r}
+model_interaction <- glm(purchase ~ imp_1_5, 
+                         data = df, family = "binomial")
+summary(model_interaction)
+exp(coef(model_interaction))
+```
+
+ANSWER:
+
+-   imp_1_5
+
+    -   p-value: \<2e-16 \< 0.05 –\> statistically significant
+
+    -   odds: Each 1 increase in imp_1_5 increases the odds of purchase
+        by 3.30%.
+
+------------------------------------------------------------------------
+
+Is there a relationship between purchase and
+
+-   the consumers' impression count for website 6?
+
+```{r}
+model_interaction <- glm(purchase ~ imp_6,
+                         data = df, family = "binomial")
+summary(model_interaction)
+exp(coef(model_interaction))
+```
+
+ANSWER:
+
+-   imp_6
+
+    -   p-value: 1.24e-11 \< 0.05 –\> statistically significant
+
+    -   odds: Each 1 increase in imp_6 increases the odds of purchase by
+        2.00%.
+
+## Which sites should Star Digital advertise on? In particular, should it put its advertising dollars in Site 6 or in Sites 1 through 5?
+
+# Impression Mean Comparison
+
+------------------------------------------------------------------------
+
+Do the means of the consumers' impression count
+
+-   For websites 1-5
+
+-   Differ based on PURCHASE group
+
+-   Given they are part of the TEST group?
+
+```{r}
+t.test(imp_1_5 ~ purchase, data = df %>% filter(test == 1))
+```
+
+ANSWER:
+
+-   p-value: \<2.2e-16 \< 0.05 –\> statistically significant
+
+-   Difference: 9.07 - 3.07 = 6.00
+
+-   Yes, the average impression count for websites 1-5 for consumers
+    that are part of the TEST group is 9.07 for those that purchased
+    compared to 3.07 for those that did not - a 6.00 difference!
+
+------------------------------------------------------------------------
+
+Do the means of the consumers' impression count
+
+-   For websites 1-5
+
+-   Differ based on PURCHASE group
+
+-   Given they are part of the CONTROL group?
+
+```{r}
+t.test(imp_1_5 ~ purchase, data = df %>% filter(test == 0))
+
+```
+
+ANSWER:
+
+-   p-value: \<1.509e-10 \< 0.05 –\> statistically significant
+
+-   Difference: 8.68 - 3.60 = 6.08
+
+-   Yes, the average impression count for websites 1-5 for consumers
+    that are part of the CONTROL group is 8.68 for those that purchased
+    compared to 3.60 for those that did not - a 6.08 difference!
+
+------------------------------------------------------------------------
+
+Do the means of the consumers' impression count
+
+-   For website 6
+
+-   Differ based on PURCHASE group
+
+-   Given they are part of the TEST group?
+
+```{r}
+t.test(imp_6 ~ purchase, data = df %>% filter(test == 1))
+```
+
+ANSWER:
+
+-   p-value: 3.964e-13 \< 0.05 –\> statistically significant
+
+-   Difference: 2.08 - 1.46 = 0.62
+
+-   Yes, the average impression count for website 6 for consumers that
+    are part of the TEST group is 2.08 for those that purchased compared
+    to 1.46 for those that did not - a 0.62 difference!
+
+------------------------------------------------------------------------
+
+Do the means of the consumers' impression count
+
+-   For website 6
+
+-   Differ based on PURCHASE group
+
+-   Given they are part of the CONTROL group?
+
+```{r}
+t.test(imp_6 ~ purchase, data = df %>% filter(test == 0))
+```
+
+ANSWER:
+
+-   p-value: 0.206 \> 0.05 –\> NOT statistically significant
+
+-   Difference: 2.13 - 1.61 = 0.52
+
+-   Yes, the average impression count for website 6 for consumers that
+    are part of the CONTROL group is 2.13 for those that purchased
+    compared to 1.61 for those that did not - a 0.52 difference!
+
+-   However, these results are NOT statistically significant, so we
+    cannot accept there is a difference in average impression count for
+    website 6 for consumers that are part of the CONTROL group between
+    those that purchased and those that did not.
+
+------------------------------------------------------------------------
+
+Do the means of the consumers' impression count
+
+-   For websites 1-6 (total)
+
+-   Differ based on PURCHASE group
+
+-   Given they are part of the TEST group?
+
+```{r}
+t.test(imp_total ~ purchase, data = df %>% filter(test == 1))
+```
+
+ANSWER:
+
+-   p-value: 2.2e-16 \< 0.05 –\> statistically significant
+
+-   Difference: 11.15 - 4.53 = 6.62
+
+-   Yes, the average impression count for websites 1-6 for consumers
+    that are part of the TEST group is 11.15 for those that purchased
+    compared to 4.53 for those that did not - a 6.62 difference!
+
+------------------------------------------------------------------------
+
+Do the means of the consumers' impression count
+
+-   For websites 1-6 (total)
+
+-   Differ based on PURCHASE group
+
+-   Given they are part of the CONTROL group?
+
+```{r}
+t.test(imp_total ~ purchase, data = df %>% filter(test == 0))
+```
+
+ANSWER:
+
+-   p-value: 7.924e-10 \< 0.05 –\> statistically significant
+
+-   Difference: 10.81 - 5.21 = 5.60
+
+-   Yes, the average impression count for websites 1-6 for consumers
+    that are part of the CONTROL group is 10.81 for those that purchased
+    compared to 5.21 for those that did not - a 5.60 difference!
+
+Summary : Websites 1-5 have a much greater difference in impression
+count between purchase and no purchase groups for both TEST and CONTROL
+groups compared to Website 6.
